@@ -97,6 +97,11 @@ def analytics_and_reporting():
     if selected_parts:
         filtered_data = filtered_data[filtered_data['Part Number'].isin(selected_parts)]
 
+    # Convert numeric columns to appropriate types
+    numeric_columns = ['Usage Rate', 'Min Inventory', 'Max Inventory', 'Lead Time']
+    for col in numeric_columns:
+        filtered_data[col] = pd.to_numeric(filtered_data[col], errors='coerce')
+
     # 1. Enhanced Inventory Analysis
     st.write("### Inventory Analysis")
     fig_inventory = px.bar(filtered_data, 
@@ -114,6 +119,11 @@ def analytics_and_reporting():
     }).reset_index()
     supplier_metrics.columns = ['Supplier', 'Avg Lead Time', 'Lead Time Std', 'Number of Parts', 'Total Usage']
     
+    # Ensure numeric columns are of the correct type
+    numeric_cols = ['Avg Lead Time', 'Lead Time Std', 'Number of Parts', 'Total Usage']
+    for col in numeric_cols:
+        supplier_metrics[col] = pd.to_numeric(supplier_metrics[col], errors='coerce')
+    
     # Calculate a simple supplier rating (lower is better)
     supplier_metrics['Rating'] = (
         supplier_metrics['Avg Lead Time'] * 0.4 +
@@ -126,34 +136,40 @@ def analytics_and_reporting():
 
     # 3. Usage Rate Trends and Predictive Analytics
     st.write("### Usage Rate Trends and Prediction")
-    selected_part = st.selectbox("Select a part for prediction", filtered_data['Part Number'].unique())
-    part_data = filtered_data[filtered_data['Part Number'] == selected_part]
-    
-    # Assuming we have historical data with timestamps
-    # For this example, we'll simulate it
-    part_data['Timestamp'] = pd.date_range(end=pd.Timestamp.now(), periods=len(part_data), freq='D')
-    part_data['Days'] = (part_data['Timestamp'] - part_data['Timestamp'].min()).dt.days
-    
-    # Prepare data for prediction
-    X = part_data[['Days']]
-    y = part_data['Usage Rate']
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    # Train a simple linear regression model
-    model = LinearRegression()
-    model.fit(X_train, y_train)
-    
-    # Make future predictions
-    future_days = pd.DataFrame({'Days': range(X['Days'].max(), X['Days'].max() + 30)})
-    future_predictions = model.predict(future_days)
-    
-    # Plot actual and predicted usage
-    fig_usage = go.Figure()
-    fig_usage.add_trace(go.Scatter(x=part_data['Timestamp'], y=part_data['Usage Rate'], mode='markers', name='Actual Usage'))
-    fig_usage.add_trace(go.Scatter(x=pd.date_range(start=part_data['Timestamp'].max(), periods=30, freq='D'), 
-                                   y=future_predictions, mode='lines', name='Predicted Usage'))
-    fig_usage.update_layout(title=f"Usage Rate Trend and Prediction for {selected_part}")
-    st.plotly_chart(fig_usage)
+    if len(filtered_data['Part Number'].unique()) > 0:
+        selected_part = st.selectbox("Select a part for prediction", filtered_data['Part Number'].unique())
+        part_data = filtered_data[filtered_data['Part Number'] == selected_part]
+        
+        if len(part_data) > 1:  # Ensure we have enough data points for prediction
+            # Assuming we have historical data with timestamps
+            # For this example, we'll simulate it
+            part_data['Timestamp'] = pd.date_range(end=pd.Timestamp.now(), periods=len(part_data), freq='D')
+            part_data['Days'] = (part_data['Timestamp'] - part_data['Timestamp'].min()).dt.days
+            
+            # Prepare data for prediction
+            X = part_data[['Days']]
+            y = part_data['Usage Rate']
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            
+            # Train a simple linear regression model
+            model = LinearRegression()
+            model.fit(X_train, y_train)
+            
+            # Make future predictions
+            future_days = pd.DataFrame({'Days': range(X['Days'].max(), X['Days'].max() + 30)})
+            future_predictions = model.predict(future_days)
+            
+            # Plot actual and predicted usage
+            fig_usage = go.Figure()
+            fig_usage.add_trace(go.Scatter(x=part_data['Timestamp'], y=part_data['Usage Rate'], mode='markers', name='Actual Usage'))
+            fig_usage.add_trace(go.Scatter(x=pd.date_range(start=part_data['Timestamp'].max(), periods=30, freq='D'), 
+                                           y=future_predictions, mode='lines', name='Predicted Usage'))
+            fig_usage.update_layout(title=f"Usage Rate Trend and Prediction for {selected_part}")
+            st.plotly_chart(fig_usage)
+        else:
+            st.warning(f"Not enough data points for part {selected_part} to make predictions.")
+    else:
+        st.warning("No parts available for prediction.")
 
     # 4. Lead Time Analysis
     st.write("### Lead Time Analysis")
