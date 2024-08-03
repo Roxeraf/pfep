@@ -90,13 +90,16 @@ def analytics_and_reporting():
         return
 
     # Filtering options
-    st.sidebar.subheader("Filters")
-    selected_suppliers = st.sidebar.multiselect(
-        "Select Suppliers", options=st.session_state.pfep_data['Supplier'].unique()
-    )
-    selected_parts = st.sidebar.multiselect(
-        "Select Parts", options=st.session_state.pfep_data['Part Number'].unique()
-    )
+    with st.expander("Data Filters"):
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_suppliers = st.multiselect(
+                "Select Suppliers", options=st.session_state.pfep_data['Supplier'].unique()
+            )
+        with col2:
+            selected_parts = st.multiselect(
+                "Select Parts", options=st.session_state.pfep_data['Part Number'].unique()
+            )
 
     # Apply filters
     filtered_data = st.session_state.pfep_data
@@ -111,94 +114,121 @@ def analytics_and_reporting():
     for col in numeric_columns:
         filtered_data[col] = pd.to_numeric(filtered_data[col], errors='coerce')
 
-    # 1. Enhanced Inventory Analysis
-    st.write("### Inventory Analysis")
-    fig_inventory = px.bar(filtered_data, 
-                           x='Part Number', 
-                           y=['Min Inventory', 'Max Inventory', 'Usage Rate'],
-                           title="Inventory Levels and Usage Rate by Part")
-    st.plotly_chart(fig_inventory)
-
-    # 2. Supplier Performance Metrics and Rating System
-    st.write("### Supplier Performance and Rating")
-    supplier_metrics = filtered_data.groupby('Supplier').agg({
-        'Avg Lead Time (days)': 'mean',
-        'Lead Time': 'std',
-        'Part Number': 'count',
-        'Usage Rate': 'sum'
-    }).reset_index()
-    supplier_metrics.columns = ['Supplier', 'Avg Lead Time', 'Lead Time Std', 'Number of Parts', 'Total Usage']
-    
-    # Calculate a simple supplier rating (lower is better)
-    supplier_metrics['Rating'] = (
-        supplier_metrics['Avg Lead Time'] * 0.4 +
-        supplier_metrics['Lead Time Std'] * 0.3 +
-        (1 / supplier_metrics['Number of Parts']) * 0.3
-    )
-    supplier_metrics['Rating'] = supplier_metrics['Rating'].round(2)
-    
-    st.dataframe(supplier_metrics.sort_values('Rating'))
-
-    # 3. Usage Rate Trends and Predictive Analytics
-    st.write("### Usage Rate Trends and Prediction")
-    if len(filtered_data['Part Number'].unique()) > 0:
-        selected_part = st.selectbox("Select a part for prediction", filtered_data['Part Number'].unique())
-        part_data = filtered_data[filtered_data['Part Number'] == selected_part]
-        
-        if len(part_data) > 1:  # Ensure we have enough data points for prediction
-            # Assuming we have historical data with timestamps
-            # For this example, we'll simulate it
-            part_data['Timestamp'] = pd.date_range(end=pd.Timestamp.now(), periods=len(part_data), freq='D')
-            part_data['Days'] = (part_data['Timestamp'] - part_data['Timestamp'].min()).dt.days
-            
-            # Prepare data for prediction
-            X = part_data[['Days']]
-            y = part_data['Usage Rate']
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-            
-            # Train a simple linear regression model
-            model = LinearRegression()
-            model.fit(X_train, y_train)
-            
-            # Make future predictions
-            future_days = pd.DataFrame({'Days': range(X['Days'].max(), X['Days'].max() + 30)})
-            future_predictions = model.predict(future_days)
-            
-            # Plot actual and predicted usage
-            fig_usage = go.Figure()
-            fig_usage.add_trace(go.Scatter(x=part_data['Timestamp'], y=part_data['Usage Rate'], mode='markers', name='Actual Usage'))
-            fig_usage.add_trace(go.Scatter(x=pd.date_range(start=part_data['Timestamp'].max(), periods=30, freq='D'), 
-                                           y=future_predictions, mode='lines', name='Predicted Usage'))
-            fig_usage.update_layout(title=f"Usage Rate Trend and Prediction for {selected_part}")
-            st.plotly_chart(fig_usage)
-        else:
-            st.warning(f"Not enough data points for part {selected_part} to make predictions.")
-    else:
-        st.warning("No parts available for prediction.")
-
-    # 4. Lead Time Analysis
-    st.write("### Lead Time Analysis")
-    fig_lead_time = px.box(filtered_data, x='Supplier', y='Avg Lead Time (days)', title="Lead Time Distribution by Supplier")
-    st.plotly_chart(fig_lead_time)
-
-    # 5. Enhanced Dashboard Summary
+    # Dashboard Summary
     st.write("### Dashboard Summary")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total Parts", len(filtered_data))
     with col2:
-        st.metric("Average Lead Time", f"{filtered_data['Avg Lead Time (days)'].mean():.2f} days")
-    with col3:
         st.metric("Total Suppliers", filtered_data['Supplier'].nunique())
+    with col3:
+        st.metric("Average Lead Time", f"{filtered_data['Avg Lead Time (days)'].mean():.2f} days")
+    with col4:
+        st.metric("Total Usage", f"{filtered_data['Usage Rate'].sum():,.0f}")
 
-    # 6. Inventory Optimization Suggestions
-    st.write("### Inventory Optimization Suggestions")
-    inventory_suggestions = filtered_data[filtered_data['Usage Rate'] > filtered_data['Max Inventory']]
-    if not inventory_suggestions.empty:
-        st.warning("The following parts may need increased max inventory levels:")
-        st.dataframe(inventory_suggestions[['Part Number', 'Usage Rate', 'Max Inventory']])
-    else:
-        st.success("Current inventory levels appear to be sufficient based on usage rates.")
+    # Tabs for different analyses
+    tab1, tab2, tab3, tab4 = st.tabs(["Inventory Analysis", "Supplier Performance", "Usage Trends", "Lead Time Analysis"])
+
+    with tab1:
+        st.write("### Inventory Analysis")
+        fig_inventory = px.bar(filtered_data, 
+                               x='Part Number', 
+                               y=['Min Inventory', 'Max Inventory', 'Usage Rate'],
+                               title="Inventory Levels and Usage Rate by Part",
+                               labels={'value': 'Quantity', 'variable': 'Metric'})
+        fig_inventory.update_layout(xaxis_title="Part Number", yaxis_title="Quantity")
+        st.plotly_chart(fig_inventory, use_container_width=True)
+
+        # Inventory Optimization Suggestions
+        st.write("### Inventory Optimization Suggestions")
+        inventory_suggestions = filtered_data[filtered_data['Usage Rate'] > filtered_data['Max Inventory']]
+        if not inventory_suggestions.empty:
+            st.warning("The following parts may need increased max inventory levels:")
+            st.dataframe(inventory_suggestions[['Part Number', 'Usage Rate', 'Max Inventory']])
+        else:
+            st.success("Current inventory levels appear to be sufficient based on usage rates.")
+
+    with tab2:
+        st.write("### Supplier Performance and Rating")
+        supplier_metrics = filtered_data.groupby('Supplier').agg({
+            'Avg Lead Time (days)': 'mean',
+            'Lead Time': 'std',
+            'Part Number': 'count',
+            'Usage Rate': 'sum'
+        }).reset_index()
+        supplier_metrics.columns = ['Supplier', 'Avg Lead Time', 'Lead Time Std', 'Number of Parts', 'Total Usage']
+        
+        # Calculate a simple supplier rating (lower is better)
+        supplier_metrics['Rating'] = (
+            supplier_metrics['Avg Lead Time'] * 0.4 +
+            supplier_metrics['Lead Time Std'] * 0.3 +
+            (1 / supplier_metrics['Number of Parts']) * 0.3
+        )
+        supplier_metrics['Rating'] = supplier_metrics['Rating'].round(2)
+        
+        # Display supplier metrics
+        st.dataframe(supplier_metrics.sort_values('Rating'))
+
+        # Supplier performance visualization
+        fig_supplier = px.scatter(supplier_metrics, x='Avg Lead Time', y='Number of Parts', 
+                                  size='Total Usage', color='Rating', hover_name='Supplier',
+                                  title='Supplier Performance Overview')
+        st.plotly_chart(fig_supplier, use_container_width=True)
+
+    with tab3:
+        st.write("### Usage Rate Trends and Prediction")
+        if len(filtered_data['Part Number'].unique()) > 0:
+            selected_part = st.selectbox("Select a part for prediction", filtered_data['Part Number'].unique())
+            part_data = filtered_data[filtered_data['Part Number'] == selected_part]
+            
+            if len(part_data) > 1:  # Ensure we have enough data points for prediction
+                # Assuming we have historical data with timestamps
+                # For this example, we'll simulate it
+                part_data['Timestamp'] = pd.date_range(end=pd.Timestamp.now(), periods=len(part_data), freq='D')
+                part_data['Days'] = (part_data['Timestamp'] - part_data['Timestamp'].min()).dt.days
+                
+                # Prepare data for prediction
+                X = part_data[['Days']]
+                y = part_data['Usage Rate']
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                
+                # Train a simple linear regression model
+                model = LinearRegression()
+                model.fit(X_train, y_train)
+                
+                # Make future predictions
+                future_days = pd.DataFrame({'Days': range(X['Days'].max(), X['Days'].max() + 30)})
+                future_predictions = model.predict(future_days)
+                
+                # Plot actual and predicted usage
+                fig_usage = go.Figure()
+                fig_usage.add_trace(go.Scatter(x=part_data['Timestamp'], y=part_data['Usage Rate'], mode='markers', name='Actual Usage'))
+                fig_usage.add_trace(go.Scatter(x=pd.date_range(start=part_data['Timestamp'].max(), periods=30, freq='D'), 
+                                               y=future_predictions, mode='lines', name='Predicted Usage'))
+                fig_usage.update_layout(title=f"Usage Rate Trend and Prediction for {selected_part}",
+                                        xaxis_title="Date", yaxis_title="Usage Rate")
+                st.plotly_chart(fig_usage, use_container_width=True)
+            else:
+                st.warning(f"Not enough data points for part {selected_part} to make predictions.")
+        else:
+            st.warning("No parts available for prediction.")
+
+    with tab4:
+        st.write("### Lead Time Analysis")
+        fig_lead_time = px.box(filtered_data, x='Supplier', y='Avg Lead Time (days)', 
+                               title="Lead Time Distribution by Supplier")
+        fig_lead_time.update_layout(xaxis_title="Supplier", yaxis_title="Lead Time (days)")
+        st.plotly_chart(fig_lead_time, use_container_width=True)
+
+        # Additional lead time insights
+        avg_lead_time = filtered_data['Avg Lead Time (days)'].mean()
+        max_lead_time = filtered_data['Avg Lead Time (days)'].max()
+        min_lead_time = filtered_data['Avg Lead Time (days)'].min()
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Average Lead Time", f"{avg_lead_time:.2f} days")
+        col2.metric("Max Lead Time", f"{max_lead_time:.2f} days")
+        col3.metric("Min Lead Time", f"{min_lead_time:.2f} days")
 
 def main():
     st.title("Advanced PFEP Management System")
