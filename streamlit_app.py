@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import io
 from datetime import datetime
+import plotly.express as px
+import plotly.graph_objects as go
 
 # Initialize session state to store our data
 if 'pfep_data' not in st.session_state:
@@ -69,10 +71,58 @@ def add_edit_record():
             st.session_state.pfep_data.loc[st.session_state.pfep_data['Part Number'] == selected_part] = pd.Series(new_record)
         st.success("Record saved successfully!")
 
+def analytics_and_reporting():
+    st.subheader("Analytics and Reporting")
+
+    if st.session_state.pfep_data.empty:
+        st.warning("No data available for analysis. Please upload or add some data first.")
+        return
+
+    # 1. Inventory Analysis
+    st.write("### Inventory Analysis")
+    fig_inventory = px.bar(st.session_state.pfep_data, 
+                           x='Part Number', 
+                           y=['Min Inventory', 'Max Inventory'],
+                           title="Inventory Levels by Part")
+    st.plotly_chart(fig_inventory)
+
+    # 2. Supplier Performance Metrics
+    st.write("### Supplier Performance")
+    supplier_metrics = st.session_state.pfep_data.groupby('Supplier').agg({
+        'Lead Time': 'mean',
+        'Part Number': 'count'
+    }).rename(columns={'Part Number': 'Number of Parts'})
+    st.dataframe(supplier_metrics)
+
+    # 3. Usage Rate Trends
+    st.write("### Usage Rate Trends")
+    fig_usage = px.line(st.session_state.pfep_data, 
+                        x='Part Number', 
+                        y='Usage Rate',
+                        title="Usage Rate by Part")
+    st.plotly_chart(fig_usage)
+
+    # 4. Lead Time Analysis
+    st.write("### Lead Time Analysis")
+    fig_lead_time = px.histogram(st.session_state.pfep_data, 
+                                 x='Lead Time',
+                                 title="Distribution of Lead Times")
+    st.plotly_chart(fig_lead_time)
+
+    # 5. Dashboard Summary
+    st.write("### Dashboard Summary")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Parts", len(st.session_state.pfep_data))
+    with col2:
+        st.metric("Average Lead Time", f"{st.session_state.pfep_data['Lead Time'].mean():.2f} days")
+    with col3:
+        st.metric("Total Suppliers", st.session_state.pfep_data['Supplier'].nunique())
+
 def main():
     st.title("Interactive PFEP Management System")
 
-    menu = ["Upload Data", "View Data", "Add/Edit Record", "Download Data"]
+    menu = ["Upload Data", "View Data", "Add/Edit Record", "Analytics and Reporting", "Download Data"]
     choice = st.sidebar.selectbox("Menu", menu)
 
     if choice == "Upload Data":
@@ -81,6 +131,8 @@ def main():
         display_data()
     elif choice == "Add/Edit Record":
         add_edit_record()
+    elif choice == "Analytics and Reporting":
+        analytics_and_reporting()
     elif choice == "Download Data":
         download_excel()
 
