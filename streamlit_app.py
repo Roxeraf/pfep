@@ -12,7 +12,10 @@ import numpy as np
 if 'pfep_data' not in st.session_state:
     st.session_state.pfep_data = pd.DataFrame(columns=[
         'Part Number', 'Description', 'Supplier', 'Packaging', 'Storage Location', 
-        'Usage Rate', 'Min Inventory', 'Max Inventory', 'Lead Time', 'Last Updated'
+        'Usage Rate', 'Min Inventory', 'Max Inventory', 'Lead Time', 'Last Updated',
+        'Order Frequency', 'Min Inventory Level', 'Max Inventory Level', 
+        'Avg Lead Time (days)', 'Unit of Measure', 'Packaging Dimensions (LxWxH)',
+        'Reusable Packaging', 'Reusable Packaging Lead Time (days)'
     ])
 
 def upload_excel():
@@ -64,7 +67,12 @@ def add_edit_record():
     new_record = {}
     for col in st.session_state.pfep_data.columns:
         if col != 'Last Updated':
-            new_record[col] = st.text_input(col, value=record.get(col, ''))
+            if col == 'Reusable Packaging':
+                new_record[col] = st.checkbox(col, value=record.get(col, False))
+            elif col == 'Packaging Dimensions (LxWxH)':
+                new_record[col] = st.text_input(col, value=record.get(col, ''))
+            else:
+                new_record[col] = st.text_input(col, value=record.get(col, ''))
     
     if st.button("Save Record"):
         new_record['Last Updated'] = datetime.now()
@@ -98,7 +106,8 @@ def analytics_and_reporting():
         filtered_data = filtered_data[filtered_data['Part Number'].isin(selected_parts)]
 
     # Convert numeric columns to appropriate types
-    numeric_columns = ['Usage Rate', 'Min Inventory', 'Max Inventory', 'Lead Time']
+    numeric_columns = ['Usage Rate', 'Min Inventory', 'Max Inventory', 'Lead Time', 
+                       'Min Inventory Level', 'Max Inventory Level', 'Avg Lead Time (days)']
     for col in numeric_columns:
         filtered_data[col] = pd.to_numeric(filtered_data[col], errors='coerce')
 
@@ -113,16 +122,12 @@ def analytics_and_reporting():
     # 2. Supplier Performance Metrics and Rating System
     st.write("### Supplier Performance and Rating")
     supplier_metrics = filtered_data.groupby('Supplier').agg({
-        'Lead Time': ['mean', 'std'],
+        'Avg Lead Time (days)': 'mean',
+        'Lead Time': 'std',
         'Part Number': 'count',
         'Usage Rate': 'sum'
     }).reset_index()
     supplier_metrics.columns = ['Supplier', 'Avg Lead Time', 'Lead Time Std', 'Number of Parts', 'Total Usage']
-    
-    # Ensure numeric columns are of the correct type
-    numeric_cols = ['Avg Lead Time', 'Lead Time Std', 'Number of Parts', 'Total Usage']
-    for col in numeric_cols:
-        supplier_metrics[col] = pd.to_numeric(supplier_metrics[col], errors='coerce')
     
     # Calculate a simple supplier rating (lower is better)
     supplier_metrics['Rating'] = (
@@ -173,7 +178,7 @@ def analytics_and_reporting():
 
     # 4. Lead Time Analysis
     st.write("### Lead Time Analysis")
-    fig_lead_time = px.box(filtered_data, x='Supplier', y='Lead Time', title="Lead Time Distribution by Supplier")
+    fig_lead_time = px.box(filtered_data, x='Supplier', y='Avg Lead Time (days)', title="Lead Time Distribution by Supplier")
     st.plotly_chart(fig_lead_time)
 
     # 5. Enhanced Dashboard Summary
@@ -182,7 +187,7 @@ def analytics_and_reporting():
     with col1:
         st.metric("Total Parts", len(filtered_data))
     with col2:
-        st.metric("Average Lead Time", f"{filtered_data['Lead Time'].mean():.2f} days")
+        st.metric("Average Lead Time", f"{filtered_data['Avg Lead Time (days)'].mean():.2f} days")
     with col3:
         st.metric("Total Suppliers", filtered_data['Supplier'].nunique())
 
