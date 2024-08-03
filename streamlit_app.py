@@ -4,6 +4,9 @@ import io
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+import numpy as np
 
 # Initialize session state to store our data
 if 'pfep_data' not in st.session_state:
@@ -72,55 +75,112 @@ def add_edit_record():
         st.success("Record saved successfully!")
 
 def analytics_and_reporting():
-    st.subheader("Analytics and Reporting")
+    st.subheader("Advanced Analytics and Reporting")
 
     if st.session_state.pfep_data.empty:
         st.warning("No data available for analysis. Please upload or add some data first.")
         return
 
-    # 1. Inventory Analysis
+    # Filtering options
+    st.sidebar.subheader("Filters")
+    selected_suppliers = st.sidebar.multiselect(
+        "Select Suppliers", options=st.session_state.pfep_data['Supplier'].unique()
+    )
+    selected_parts = st.sidebar.multiselect(
+        "Select Parts", options=st.session_state.pfep_data['Part Number'].unique()
+    )
+
+    # Apply filters
+    filtered_data = st.session_state.pfep_data
+    if selected_suppliers:
+        filtered_data = filtered_data[filtered_data['Supplier'].isin(selected_suppliers)]
+    if selected_parts:
+        filtered_data = filtered_data[filtered_data['Part Number'].isin(selected_parts)]
+
+    # 1. Enhanced Inventory Analysis
     st.write("### Inventory Analysis")
-    fig_inventory = px.bar(st.session_state.pfep_data, 
+    fig_inventory = px.bar(filtered_data, 
                            x='Part Number', 
-                           y=['Min Inventory', 'Max Inventory'],
-                           title="Inventory Levels by Part")
+                           y=['Min Inventory', 'Max Inventory', 'Usage Rate'],
+                           title="Inventory Levels and Usage Rate by Part")
     st.plotly_chart(fig_inventory)
 
-    # 2. Supplier Performance Metrics
-    st.write("### Supplier Performance")
-    supplier_metrics = st.session_state.pfep_data.groupby('Supplier').agg({
-        'Lead Time': 'mean',
-        'Part Number': 'count'
-    }).rename(columns={'Part Number': 'Number of Parts'})
-    st.dataframe(supplier_metrics)
+    # 2. Supplier Performance Metrics and Rating System
+    st.write("### Supplier Performance and Rating")
+    supplier_metrics = filtered_data.groupby('Supplier').agg({
+        'Lead Time': ['mean', 'std'],
+        'Part Number': 'count',
+        'Usage Rate': 'sum'
+    }).reset_index()
+    supplier_metrics.columns = ['Supplier', 'Avg Lead Time', 'Lead Time Std', 'Number of Parts', 'Total Usage']
+    
+    # Calculate a simple supplier rating (lower is better)
+    supplier_metrics['Rating'] = (
+        supplier_metrics['Avg Lead Time'] * 0.4 +
+        supplier_metrics['Lead Time Std'] * 0.3 +
+        (1 / supplier_metrics['Number of Parts']) * 0.3
+    )
+    supplier_metrics['Rating'] = supplier_metrics['Rating'].round(2)
+    
+    st.dataframe(supplier_metrics.sort_values('Rating'))
 
-    # 3. Usage Rate Trends
-    st.write("### Usage Rate Trends")
-    fig_usage = px.line(st.session_state.pfep_data, 
-                        x='Part Number', 
-                        y='Usage Rate',
-                        title="Usage Rate by Part")
+    # 3. Usage Rate Trends and Predictive Analytics
+    st.write("### Usage Rate Trends and Prediction")
+    selected_part = st.selectbox("Select a part for prediction", filtered_data['Part Number'].unique())
+    part_data = filtered_data[filtered_data['Part Number'] == selected_part]
+    
+    # Assuming we have historical data with timestamps
+    # For this example, we'll simulate it
+    part_data['Timestamp'] = pd.date_range(end=pd.Timestamp.now(), periods=len(part_data), freq='D')
+    part_data['Days'] = (part_data['Timestamp'] - part_data['Timestamp'].min()).dt.days
+    
+    # Prepare data for prediction
+    X = part_data[['Days']]
+    y = part_data['Usage Rate']
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    # Train a simple linear regression model
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+    
+    # Make future predictions
+    future_days = pd.DataFrame({'Days': range(X['Days'].max(), X['Days'].max() + 30)})
+    future_predictions = model.predict(future_days)
+    
+    # Plot actual and predicted usage
+    fig_usage = go.Figure()
+    fig_usage.add_trace(go.Scatter(x=part_data['Timestamp'], y=part_data['Usage Rate'], mode='markers', name='Actual Usage'))
+    fig_usage.add_trace(go.Scatter(x=pd.date_range(start=part_data['Timestamp'].max(), periods=30, freq='D'), 
+                                   y=future_predictions, mode='lines', name='Predicted Usage'))
+    fig_usage.update_layout(title=f"Usage Rate Trend and Prediction for {selected_part}")
     st.plotly_chart(fig_usage)
 
     # 4. Lead Time Analysis
     st.write("### Lead Time Analysis")
-    fig_lead_time = px.histogram(st.session_state.pfep_data, 
-                                 x='Lead Time',
-                                 title="Distribution of Lead Times")
+    fig_lead_time = px.box(filtered_data, x='Supplier', y='Lead Time', title="Lead Time Distribution by Supplier")
     st.plotly_chart(fig_lead_time)
 
-    # 5. Dashboard Summary
+    # 5. Enhanced Dashboard Summary
     st.write("### Dashboard Summary")
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Parts", len(st.session_state.pfep_data))
+        st.metric("Total Parts", len(filtered_data))
     with col2:
-        st.metric("Average Lead Time", f"{st.session_state.pfep_data['Lead Time'].mean():.2f} days")
+        st.metric("Average Lead Time", f"{filtered_data['Lead Time'].mean():.2f} days")
     with col3:
-        st.metric("Total Suppliers", st.session_state.pfep_data['Supplier'].nunique())
+        st.metric("Total Suppliers", filtered_data['Supplier'].nunique())
+
+    # 6. Inventory Optimization Suggestions
+    st.write("### Inventory Optimization Suggestions")
+    inventory_suggestions = filtered_data[filtered_data['Usage Rate'] > filtered_data['Max Inventory']]
+    if not inventory_suggestions.empty:
+        st.warning("The following parts may need increased max inventory levels:")
+        st.dataframe(inventory_suggestions[['Part Number', 'Usage Rate', 'Max Inventory']])
+    else:
+        st.success("Current inventory levels appear to be sufficient based on usage rates.")
 
 def main():
-    st.title("Interactive PFEP Management System")
+    st.title("Advanced PFEP Management System")
 
     menu = ["Upload Data", "View Data", "Add/Edit Record", "Analytics and Reporting", "Download Data"]
     choice = st.sidebar.selectbox("Menu", menu)
