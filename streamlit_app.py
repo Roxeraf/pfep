@@ -5,43 +5,71 @@ from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
-import numpy as np
+import sqlite3
 
-# Initialize session state to store our data
-if 'pfep_data' not in st.session_state:
-    st.session_state.pfep_data = pd.DataFrame(columns=[
-        'Part Number', 'Description', 'Supplier', 'Packaging', 'Storage Location', 
-        'Usage Rate', 'Min Inventory', 'Max Inventory', 'Lead Time', 'Last Updated',
-        'Order Frequency', 'Min Inventory Level', 'Max Inventory Level', 
-        'Avg Lead Time (days)', 'Unit of Measure', 'Packaging Dimensions (LxWxH)',
-        'Reusable Packaging', 'Reusable Packaging Lead Time (days)'
-    ])
+# Initialize database
+def init_db():
+    conn = sqlite3.connect('pfep_data.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS pfep
+                 (Part_Number TEXT PRIMARY KEY, 
+                  Description TEXT, 
+                  Supplier TEXT, 
+                  Packaging TEXT, 
+                  Storage_Location TEXT, 
+                  Usage_Rate REAL, 
+                  Min_Inventory REAL, 
+                  Max_Inventory REAL, 
+                  Lead_Time REAL, 
+                  Last_Updated TEXT,
+                  Order_Frequency TEXT, 
+                  Min_Inventory_Level REAL, 
+                  Max_Inventory_Level REAL, 
+                  Avg_Lead_Time REAL, 
+                  Unit_of_Measure TEXT, 
+                  Packaging_Dimensions TEXT,
+                  Reusable_Packaging INTEGER, 
+                  Reusable_Packaging_Lead_Time REAL,
+                  Total_Usage_Time REAL,
+                  Order_Frequency_Days REAL,
+                  Average_Daily_Usage REAL,
+                  Current_Inventory REAL,
+                  Remaining_Usage_Time REAL)''')
+    conn.commit()
+    conn.close()
 
-def upload_excel():
-    uploaded_file = st.file_uploader("Choose an Excel file", type="xlsx")
+# Function to load data from database
+def load_data():
+    conn = sqlite3.connect('pfep_data.db')
+    df = pd.read_sql('SELECT * FROM pfep', conn)
+    conn.close()
+    return df
+
+# Function to upload and process data
+def upload_data():
+    uploaded_file = st.file_uploader("Choose a file", type=['xlsx', 'csv'])
     if uploaded_file is not None:
-        df = pd.read_excel(uploaded_file)
-        df['Last Updated'] = datetime.now()
-        st.session_state.pfep_data = pd.concat([st.session_state.pfep_data, df], ignore_index=True)
-        st.success("Data uploaded successfully!")
+        try:
+            if uploaded_file.name.endswith('.xlsx'):
+                df = pd.read_excel(uploaded_file)
+            else:
+                df = pd.read_csv(uploaded_file)
+            
+            df['Last Updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            conn = sqlite3.connect('pfep_data.db')
+            df.to_sql('pfep', conn, if_exists='replace', index=False)
+            conn.close()
+            
+            st.session_state.pfep_data = df
+            st.success("Data uploaded successfully and stored in the database!")
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
 
-def download_excel():
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        st.session_state.pfep_data.to_excel(writer, index=False, sheet_name='PFEP')
-    excel_data = output.getvalue()
-    st.download_button(
-        label="Download PFEP data as Excel",
-        data=excel_data,
-        file_name="pfep_data.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
+# Function to display data
 def display_data():
     st.subheader("PFEP Data")
     
-    # Filter data
     filter_column = st.selectbox("Filter by column", st.session_state.pfep_data.columns)
     filter_value = st.text_input("Filter value")
     
@@ -51,42 +79,12 @@ def display_data():
     
     st.dataframe(filtered_data)
 
-def add_edit_record():
-    st.subheader("Add/Edit Record")
-    
-    # Select existing part number or create new
-    part_numbers = ['New Record'] + list(st.session_state.pfep_data['Part Number'])
-    selected_part = st.selectbox("Select Part Number or 'New Record'", part_numbers)
-    
-    if selected_part == 'New Record':
-        record = pd.Series()
-    else:
-        record = st.session_state.pfep_data[st.session_state.pfep_data['Part Number'] == selected_part].iloc[0]
-    
-    # Create input fields for each column
-    new_record = {}
-    for col in st.session_state.pfep_data.columns:
-        if col != 'Last Updated':
-            if col == 'Reusable Packaging':
-                new_record[col] = st.checkbox(col, value=record.get(col, False))
-            elif col == 'Packaging Dimensions (LxWxH)':
-                new_record[col] = st.text_input(col, value=record.get(col, ''))
-            else:
-                new_record[col] = st.text_input(col, value=record.get(col, ''))
-    
-    if st.button("Save Record"):
-        new_record['Last Updated'] = datetime.now()
-        if selected_part == 'New Record':
-            st.session_state.pfep_data = pd.concat([st.session_state.pfep_data, pd.DataFrame([new_record])], ignore_index=True)
-        else:
-            st.session_state.pfep_data.loc[st.session_state.pfep_data['Part Number'] == selected_part] = pd.Series(new_record)
-        st.success("Record saved successfully!")
-
+# Function for analytics and reporting
 def analytics_and_reporting():
     st.subheader("Advanced Analytics and Reporting")
 
     if st.session_state.pfep_data.empty:
-        st.warning("No data available for analysis. Please upload or add some data first.")
+        st.warning("No data available for analysis. Please upload data first.")
         return
 
     # Filtering options
@@ -108,12 +106,6 @@ def analytics_and_reporting():
     if selected_parts:
         filtered_data = filtered_data[filtered_data['Part Number'].isin(selected_parts)]
 
-    # Convert numeric columns to appropriate types
-    numeric_columns = ['Usage Rate', 'Min Inventory', 'Max Inventory', 'Lead Time', 
-                       'Min Inventory Level', 'Max Inventory Level', 'Avg Lead Time (days)']
-    for col in numeric_columns:
-        filtered_data[col] = pd.to_numeric(filtered_data[col], errors='coerce')
-
     # Dashboard Summary
     st.write("### Dashboard Summary")
     col1, col2, col3, col4 = st.columns(4)
@@ -124,7 +116,7 @@ def analytics_and_reporting():
     with col3:
         st.metric("Average Lead Time", f"{filtered_data['Avg Lead Time (days)'].mean():.2f} days")
     with col4:
-        st.metric("Total Usage", f"{filtered_data['Usage Rate'].sum():,.0f}")
+        st.metric("Total Current Inventory", f"{filtered_data['Current Inventory'].sum():,.0f}")
 
     # Tabs for different analyses
     tab1, tab2, tab3, tab4 = st.tabs(["Inventory Analysis", "Supplier Performance", "Usage Trends", "Lead Time Analysis"])
@@ -133,85 +125,65 @@ def analytics_and_reporting():
         st.write("### Inventory Analysis")
         fig_inventory = px.bar(filtered_data, 
                                x='Part Number', 
-                               y=['Min Inventory', 'Max Inventory', 'Usage Rate'],
-                               title="Inventory Levels and Usage Rate by Part",
+                               y=['Current Inventory', 'Min Inventory', 'Max Inventory'],
+                               title="Current Inventory vs Min/Max Levels by Part",
                                labels={'value': 'Quantity', 'variable': 'Metric'})
         fig_inventory.update_layout(xaxis_title="Part Number", yaxis_title="Quantity")
         st.plotly_chart(fig_inventory, use_container_width=True)
 
         # Inventory Optimization Suggestions
         st.write("### Inventory Optimization Suggestions")
-        inventory_suggestions = filtered_data[filtered_data['Usage Rate'] > filtered_data['Max Inventory']]
-        if not inventory_suggestions.empty:
-            st.warning("The following parts may need increased max inventory levels:")
-            st.dataframe(inventory_suggestions[['Part Number', 'Usage Rate', 'Max Inventory']])
+        low_inventory = filtered_data[filtered_data['Current Inventory'] < filtered_data['Min Inventory']]
+        if not low_inventory.empty:
+            st.warning("The following parts have inventory levels below the minimum:")
+            st.dataframe(low_inventory[['Part Number', 'Current Inventory', 'Min Inventory', 'Remaining Usage Time (Days)']])
         else:
-            st.success("Current inventory levels appear to be sufficient based on usage rates.")
+            st.success("All parts have sufficient inventory levels.")
 
     with tab2:
         st.write("### Supplier Performance and Rating")
         supplier_metrics = filtered_data.groupby('Supplier').agg({
             'Avg Lead Time (days)': 'mean',
-            'Lead Time': 'std',
             'Part Number': 'count',
-            'Usage Rate': 'sum'
+            'Usage Rate': 'sum',
+            'Remaining Usage Time (Days)': 'mean'
         }).reset_index()
-        supplier_metrics.columns = ['Supplier', 'Avg Lead Time', 'Lead Time Std', 'Number of Parts', 'Total Usage']
+        supplier_metrics.columns = ['Supplier', 'Avg Lead Time', 'Number of Parts', 'Total Usage Rate', 'Avg Remaining Usage Time']
         
-        # Calculate a simple supplier rating (lower is better)
+        # Calculate a simple supplier rating (higher is better)
         supplier_metrics['Rating'] = (
-            supplier_metrics['Avg Lead Time'] * 0.4 +
-            supplier_metrics['Lead Time Std'] * 0.3 +
-            (1 / supplier_metrics['Number of Parts']) * 0.3
+            (1 / supplier_metrics['Avg Lead Time']) * 0.4 +
+            supplier_metrics['Number of Parts'] * 0.3 +
+            supplier_metrics['Avg Remaining Usage Time'] * 0.3
         )
-        supplier_metrics['Rating'] = supplier_metrics['Rating'].round(2)
+        supplier_metrics['Rating'] = supplier_metrics['Rating'] / supplier_metrics['Rating'].max() * 100  # Normalize to 0-100
         
         # Display supplier metrics
-        st.dataframe(supplier_metrics.sort_values('Rating'))
+        st.dataframe(supplier_metrics.sort_values('Rating', ascending=False))
 
         # Supplier performance visualization
         fig_supplier = px.scatter(supplier_metrics, x='Avg Lead Time', y='Number of Parts', 
-                                  size='Total Usage', color='Rating', hover_name='Supplier',
+                                  size='Total Usage Rate', color='Rating', hover_name='Supplier',
                                   title='Supplier Performance Overview')
         st.plotly_chart(fig_supplier, use_container_width=True)
 
     with tab3:
-        st.write("### Usage Rate Trends and Prediction")
-        if len(filtered_data['Part Number'].unique()) > 0:
-            selected_part = st.selectbox("Select a part for prediction", filtered_data['Part Number'].unique())
-            part_data = filtered_data[filtered_data['Part Number'] == selected_part]
-            
-            if len(part_data) > 1:  # Ensure we have enough data points for prediction
-                # Assuming we have historical data with timestamps
-                # For this example, we'll simulate it
-                part_data['Timestamp'] = pd.date_range(end=pd.Timestamp.now(), periods=len(part_data), freq='D')
-                part_data['Days'] = (part_data['Timestamp'] - part_data['Timestamp'].min()).dt.days
-                
-                # Prepare data for prediction
-                X = part_data[['Days']]
-                y = part_data['Usage Rate']
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-                
-                # Train a simple linear regression model
-                model = LinearRegression()
-                model.fit(X_train, y_train)
-                
-                # Make future predictions
-                future_days = pd.DataFrame({'Days': range(X['Days'].max(), X['Days'].max() + 30)})
-                future_predictions = model.predict(future_days)
-                
-                # Plot actual and predicted usage
-                fig_usage = go.Figure()
-                fig_usage.add_trace(go.Scatter(x=part_data['Timestamp'], y=part_data['Usage Rate'], mode='markers', name='Actual Usage'))
-                fig_usage.add_trace(go.Scatter(x=pd.date_range(start=part_data['Timestamp'].max(), periods=30, freq='D'), 
-                                               y=future_predictions, mode='lines', name='Predicted Usage'))
-                fig_usage.update_layout(title=f"Usage Rate Trend and Prediction for {selected_part}",
-                                        xaxis_title="Date", yaxis_title="Usage Rate")
-                st.plotly_chart(fig_usage, use_container_width=True)
-            else:
-                st.warning(f"Not enough data points for part {selected_part} to make predictions.")
-        else:
-            st.warning("No parts available for prediction.")
+        st.write("### Usage Rate Trends")
+        selected_part = st.selectbox("Select a part for usage analysis", filtered_data['Part Number'].unique())
+        part_data = filtered_data[filtered_data['Part Number'] == selected_part]
+        
+        if not part_data.empty:
+            fig_usage = go.Figure()
+            fig_usage.add_trace(go.Bar(x=['Current Usage Rate'], y=[part_data['Usage Rate'].values[0]], name='Current Usage Rate'))
+            fig_usage.add_trace(go.Bar(x=['Average Daily Usage'], y=[part_data['Average Daily Usage'].values[0]], name='Average Daily Usage'))
+            fig_usage.update_layout(title=f"Usage Rate Analysis for Part {selected_part}",
+                                    xaxis_title="Metric", yaxis_title="Usage")
+            st.plotly_chart(fig_usage, use_container_width=True)
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Current Inventory", f"{part_data['Current Inventory'].values[0]:,.0f}")
+            col2.metric("Remaining Usage Time", f"{part_data['Remaining Usage Time (Days)'].values[0]:.2f} days")
+            col3.metric("Order Frequency", f"{part_data['Order Frequency (days)'].values[0]} days")
 
     with tab4:
         st.write("### Lead Time Analysis")
@@ -230,22 +202,38 @@ def analytics_and_reporting():
         col2.metric("Max Lead Time", f"{max_lead_time:.2f} days")
         col3.metric("Min Lead Time", f"{min_lead_time:.2f} days")
 
+# Function to download data
+def download_data():
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        st.session_state.pfep_data.to_excel(writer, index=False, sheet_name='PFEP')
+    excel_data = output.getvalue()
+    st.download_button(
+        label="Download PFEP data as Excel",
+        data=excel_data,
+        file_name="pfep_data.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
 def main():
     st.title("Advanced PFEP Management System")
 
-    menu = ["Upload Data", "View Data", "Add/Edit Record", "Analytics and Reporting", "Download Data"]
+    init_db()  # Initialize the database
+
+    if 'pfep_data' not in st.session_state:
+        st.session_state.pfep_data = load_data()
+
+    menu = ["Upload Data", "View Data", "Analytics and Reporting", "Download Data"]
     choice = st.sidebar.selectbox("Menu", menu)
 
     if choice == "Upload Data":
-        upload_excel()
+        upload_data()
     elif choice == "View Data":
         display_data()
-    elif choice == "Add/Edit Record":
-        add_edit_record()
     elif choice == "Analytics and Reporting":
         analytics_and_reporting()
     elif choice == "Download Data":
-        download_excel()
+        download_data()
 
 if __name__ == "__main__":
     main()
