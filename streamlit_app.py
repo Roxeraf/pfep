@@ -79,6 +79,54 @@ def display_data():
     
     st.dataframe(filtered_data)
 
+# Function to add or edit a record
+def add_edit_record():
+    st.subheader("Add/Edit Record")
+    
+    # Select existing part number or create new
+    part_numbers = ['New Record'] + list(st.session_state.pfep_data['Part Number'])
+    selected_part = st.selectbox("Select Part Number or 'New Record'", part_numbers)
+    
+    if selected_part == 'New Record':
+        record = pd.Series()
+    else:
+        record = st.session_state.pfep_data[st.session_state.pfep_data['Part Number'] == selected_part].iloc[0]
+    
+    # Create input fields for each column
+    new_record = {}
+    for col in st.session_state.pfep_data.columns:
+        if col != 'Last Updated':
+            if col == 'Reusable Packaging':
+                new_record[col] = st.checkbox(col, value=record.get(col, False))
+            else:
+                new_record[col] = st.text_input(col, value=record.get(col, ''))
+    
+    if st.button("Save Record"):
+        new_record['Last Updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        conn = sqlite3.connect('pfep_data.db')
+        pd.DataFrame([new_record]).to_sql('pfep', conn, if_exists='append', index=False)
+        conn.close()
+        
+        st.session_state.pfep_data = load_data()
+        st.success("Record saved successfully!")
+
+# Function to delete a record
+def delete_record():
+    st.subheader("Delete Record")
+    
+    part_number = st.selectbox("Select Part Number to delete", st.session_state.pfep_data['Part Number'])
+    
+    if st.button("Delete Record"):
+        conn = sqlite3.connect('pfep_data.db')
+        c = conn.cursor()
+        c.execute("DELETE FROM pfep WHERE Part_Number = ?", (part_number,))
+        conn.commit()
+        conn.close()
+        
+        st.session_state.pfep_data = load_data()
+        st.success(f"Record for Part Number {part_number} deleted successfully!")
+
 # Function for analytics and reporting
 def analytics_and_reporting():
     st.subheader("Advanced Analytics and Reporting")
@@ -118,11 +166,14 @@ def analytics_and_reporting():
     with col4:
         st.metric("Total Current Inventory", f"{filtered_data['Current Inventory'].sum():,.0f}")
 
+    st.write("This summary provides an overview of your current PFEP status, including the total number of parts, unique suppliers, average lead time across all parts, and the total current inventory.")
+
     # Tabs for different analyses
     tab1, tab2, tab3, tab4 = st.tabs(["Inventory Analysis", "Supplier Performance", "Usage Trends", "Lead Time Analysis"])
 
     with tab1:
         st.write("### Inventory Analysis")
+        st.write("This chart shows the current inventory levels compared to the minimum and maximum inventory levels for each part.")
         fig_inventory = px.bar(filtered_data, 
                                x='Part Number', 
                                y=['Current Inventory', 'Min Inventory', 'Max Inventory'],
@@ -137,11 +188,13 @@ def analytics_and_reporting():
         if not low_inventory.empty:
             st.warning("The following parts have inventory levels below the minimum:")
             st.dataframe(low_inventory[['Part Number', 'Current Inventory', 'Min Inventory', 'Remaining Usage Time (Days)']])
+            st.write("These parts may need to be reordered soon to prevent stockouts.")
         else:
             st.success("All parts have sufficient inventory levels.")
 
     with tab2:
         st.write("### Supplier Performance and Rating")
+        st.write("This analysis provides insights into supplier performance based on lead times, number of parts supplied, and average remaining usage time.")
         supplier_metrics = filtered_data.groupby('Supplier').agg({
             'Avg Lead Time (days)': 'mean',
             'Part Number': 'count',
@@ -166,9 +219,11 @@ def analytics_and_reporting():
                                   size='Total Usage Rate', color='Rating', hover_name='Supplier',
                                   title='Supplier Performance Overview')
         st.plotly_chart(fig_supplier, use_container_width=True)
+        st.write("In this chart, each bubble represents a supplier. The size of the bubble indicates the total usage rate, while the color represents the overall rating. Suppliers in the bottom-left quadrant (low lead time, fewer parts) might be good candidates for consolidation or expansion.")
 
     with tab3:
         st.write("### Usage Rate Trends")
+        st.write("This analysis compares the current usage rate with the average daily usage for a selected part.")
         selected_part = st.selectbox("Select a part for usage analysis", filtered_data['Part Number'].unique())
         part_data = filtered_data[filtered_data['Part Number'] == selected_part]
         
@@ -185,8 +240,11 @@ def analytics_and_reporting():
             col2.metric("Remaining Usage Time", f"{part_data['Remaining Usage Time (Days)'].values[0]:.2f} days")
             col3.metric("Order Frequency", f"{part_data['Order Frequency (days)'].values[0]} days")
 
+            st.write("This information can help in planning reorder points and optimizing inventory levels.")
+
     with tab4:
         st.write("### Lead Time Analysis")
+        st.write("This box plot shows the distribution of lead times for each supplier.")
         fig_lead_time = px.box(filtered_data, x='Supplier', y='Avg Lead Time (days)', 
                                title="Lead Time Distribution by Supplier")
         fig_lead_time.update_layout(xaxis_title="Supplier", yaxis_title="Lead Time (days)")
@@ -201,6 +259,8 @@ def analytics_and_reporting():
         col1.metric("Average Lead Time", f"{avg_lead_time:.2f} days")
         col2.metric("Max Lead Time", f"{max_lead_time:.2f} days")
         col3.metric("Min Lead Time", f"{min_lead_time:.2f} days")
+
+        st.write("Understanding lead time variations can help in better inventory planning and supplier management.")
 
 # Function to download data
 def download_data():
@@ -223,13 +283,17 @@ def main():
     if 'pfep_data' not in st.session_state:
         st.session_state.pfep_data = load_data()
 
-    menu = ["Upload Data", "View Data", "Analytics and Reporting", "Download Data"]
+    menu = ["Upload Data", "View Data", "Add/Edit Record", "Delete Record", "Analytics and Reporting", "Download Data"]
     choice = st.sidebar.selectbox("Menu", menu)
 
     if choice == "Upload Data":
         upload_data()
     elif choice == "View Data":
         display_data()
+    elif choice == "Add/Edit Record":
+        add_edit_record()
+    elif choice == "Delete Record":
+        delete_record()
     elif choice == "Analytics and Reporting":
         analytics_and_reporting()
     elif choice == "Download Data":
